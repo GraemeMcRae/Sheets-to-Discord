@@ -523,11 +523,16 @@ async def display_embeds(interaction, json_string=None, refresh_callback=None):
     # Create first embed
     embed = create_discord_embed(embeds_spec[current_page])
     
-    # Create view with navigation buttons (including refresh if callback provided)
-    view = EmbedNavigationView(embeds_spec, current_page, interaction.user.id, refresh_callback)
-    
-    # Send message and store reference in view for timeout handler
-    message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-    view.message = message
+    # Only show navigation if multiple pages
+    if total_pages > 1:
+        # Create view with navigation buttons (including refresh if callback provided)
+        view = EmbedNavigationView(embeds_spec, current_page, interaction.user.id, refresh_callback)
+        
+        # Send message and store reference in view for timeout handler
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view.message = message
+    else:
+        # Single page - no navigation needed
+        await interaction.followup.send(embed=embed, ephemeral=True)
     
     logger.info(f"Displayed embeds (showing 1/{total_pages})")
