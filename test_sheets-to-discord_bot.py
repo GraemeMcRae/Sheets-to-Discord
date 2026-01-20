@@ -21,8 +21,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 import logging
 from dotenv import load_dotenv
+from discord_embed_manager import display_embeds
 
-# Setup logging BEFORE importing discord_embed_manager
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -40,8 +41,48 @@ GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'google_credentia
 # Get logger
 logger = logging.getLogger(BOT_NAME)
 
-# Import after logging is configured
-from discord_embed_manager import display_embeds
+
+def add_test_button(view, hidden_data, user_id):
+    """
+    Example function that adds a custom button to the view.
+    
+    This demonstrates how to use the additional_buttons feature.
+    The button only appears if hidden_data is not empty.
+    
+    Args:
+        view: The EmbedNavigationView to add buttons to
+        hidden_data: Content from the Hidden column for this row
+        user_id: The Discord user ID who can interact with the view
+    """
+    # Only add button if there's hidden data
+    if not hidden_data or not hidden_data.strip():
+        return
+    
+    # Create the button
+    button = discord.ui.Button(
+        label="🔍 Show Hidden",
+        style=discord.ButtonStyle.secondary
+    )
+    
+    # Define what happens when button is clicked
+    async def button_callback(interaction: discord.Interaction):
+        # Verify it's the right user
+        if interaction.user.id != user_id:
+            await interaction.response.send_message("❌ Not your view", ephemeral=True)
+            return
+        
+        # Display the hidden data
+        await interaction.response.send_message(
+            f"**Hidden Data:**\n```\n{hidden_data}\n```",
+            ephemeral=True
+        )
+    
+    # Attach the callback to the button
+    button.callback = button_callback
+    
+    # Add the button to the view
+    view.add_item(button)
+
 
 # Validate configuration
 if not DISCORD_TOKEN:
@@ -119,11 +160,12 @@ async def test_command(interaction: discord.Interaction):
     # Defer response (required before calling display_embeds)
     await interaction.response.defer(ephemeral=True)
     
-    # Display using embed manager
+    # Display using embed manager with example custom button
     await display_embeds(
         interaction,
         json_string=None,  # Will trigger fetch_sheet_data
-        refresh_callback=fetch_sheet_data
+        refresh_callback=fetch_sheet_data,
+        additional_buttons=add_test_button  # Adds "Show Hidden" button if Hidden data exists
     )
 
 

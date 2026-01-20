@@ -123,7 +123,7 @@ async def my_command(interaction: discord.Interaction):
 
 ### Column Structure
 
-Your table must have **at least 7 columns** in this exact order:
+Your table must have **at least 8 columns** in this exact order:
 
 | Index | Column | Type | Max Length | Required | Description |
 |-------|--------|------|-----------|----------|-------------|
@@ -134,14 +134,16 @@ Your table must have **at least 7 columns** in this exact order:
 | 4 | Author | String | 256 chars | No | Small text above title |
 | 5 | AuthorURL | URL | No limit | No | Makes author clickable |
 | 6 | Footer | String | 2048 chars | No | Plain text at bottom |
-| 7+ | Field Name/Value | String | 256/1024 | No | Up to 25 pairs |
+| 7 | **Hidden** | String | No limit | No | **Not displayed** - passed to custom buttons |
+| 8+ | Field Name/Value | String | 256/1024 | No | Up to 25 pairs |
 
 ### Important Notes
 
 - **No headers** in the table - each row becomes one embed tile
 - **Empty columns** are allowed (will display empty)
-- **Field pairs** start at index 7 (Field1 Name, Field1 Value, Field2 Name, Field2 Value, ...)
-- **Total limit**: 6000 characters per embed tile
+- **Hidden column** (index 7) is never displayed but passed to `additional_buttons` function
+- **Field pairs** start at index 8 (Field1 Name, Field1 Value, Field2 Name, Field2 Value, ...)
+- **Total limit**: 6000 characters per embed tile (excluding Hidden column)
 - **Maximum fields**: 25 name/value pairs per tile
 
 ### Example Table
@@ -155,10 +157,11 @@ Row 1:
 [4] "Amazon Relay"
 [5] "https://relay.amazon.com"
 [6] "Acme Trucking • Updated 5 mins ago"
-[7] "Driver"
-[8] "Jim Smith"
-[9] "Status"
-[10] "Ready"
+[7] "B-123-ID-12345"  ← Hidden data (not displayed, available to custom buttons)
+[8] "Driver"
+[9] "Jim Smith"
+[10] "Status"
+[11] "Ready"
 ```
 
 ## Field Reference
@@ -300,15 +303,52 @@ Field Name: "~"
 Field Value: "**Formatted** _footer_ text"
 ```
 
-### Fields (Columns 7+)
+### Hidden (Column 7)
+
+**Purpose:** Pass data to custom buttons without displaying it
+
+**Characteristics:**
+- **Never displayed** in the embed
+- Passed to `additional_buttons` function as `hidden_data` parameter
+- No length limit
+- Can contain IDs, keys, JSON, or any metadata
+- Optional (leave empty if not using custom buttons)
+
+**Example:**
+```
+"B-123-BLOCKKEY-67890"  // Trip identifier for custom "Notify" button
+```
+
+**Use cases:**
+- Database IDs or keys for button actions
+- JSON data for complex button logic
+- Authentication tokens
+- Row identifiers
+- Any data your custom buttons need
+
+**How it's used:**
+```python
+def add_custom_button(view, hidden_data, user_id):
+    # hidden_data contains the value from Hidden column
+    if not hidden_data:
+        return  # Don't add button if no hidden data
+    
+    button = discord.ui.Button(label="Action")
+    # Use hidden_data to determine button behavior
+    view.add_item(button)
+```
+
+See the **Custom Buttons** section below for details on implementing `additional_buttons`.
+
+### Fields (Columns 8+)
 
 **Purpose:** Structured data display in rows of 3
 
 **Format:** Alternating name/value pairs
-- Column 7: Field 1 Name (256 chars max)
-- Column 8: Field 1 Value (1024 chars max)
-- Column 9: Field 2 Name
-- Column 10: Field 2 Value
+- Column 8: Field 1 Name (256 chars max)
+- Column 9: Field 1 Value (1024 chars max)
+- Column 10: Field 2 Name
+- Column 11: Field 2 Value
 - ... up to Field 25
 
 **Display:** Shows 3 fields per row (inline=True)
@@ -839,7 +879,7 @@ Field Value:
 
 ### Main Function
 
-#### `display_embeds(interaction, json_string=None, refresh_callback=None)`
+#### `display_embeds(interaction, json_string=None, refresh_callback=None, additional_buttons=None)`
 
 Display JSON data as interactive Discord embed tiles.
 
@@ -847,21 +887,40 @@ Display JSON data as interactive Discord embed tiles.
 - `interaction` (discord.Interaction): Discord interaction object (required)
 - `json_string` (str, optional): JSON string to display
 - `refresh_callback` (async function, optional): Function that returns fresh JSON
+- `additional_buttons` (function, optional): Function to add custom buttons
+  - Called as: `additional_buttons(view, hidden_data, user_id)`
+  - `view`: EmbedNavigationView to add buttons to
+  - `hidden_data`: Content from Hidden column (index 7) for current page
+  - `user_id`: Discord user ID who can interact
 
 **Behavior:**
 - If `json_string` is None and `refresh_callback` is provided, calls callback to fetch data
 - If `json_string` is provided, displays it immediately
 - If `refresh_callback` is provided, adds refresh button to navigation
+- If `additional_buttons` is provided, calls it to add custom buttons
 - Interaction must already be deferred before calling this function
+- Always creates a view (navigation buttons only shown if multiple pages)
 
 **Returns:** None
 
 **Example:**
 ```python
+def add_custom_button(view, hidden_data, user_id):
+    if not hidden_data:
+        return  # No button if no hidden data
+    
+    button = discord.ui.Button(label="Action")
+    async def callback(interaction):
+        # Use hidden_data here
+        await interaction.response.send_message(f"Data: {hidden_data}")
+    button.callback = callback
+    view.add_item(button)
+
 await display_embeds(
     interaction,
     json_string=None,
-    refresh_callback=my_fetch_function
+    refresh_callback=my_fetch_function,
+    additional_buttons=add_custom_button
 )
 ```
 
@@ -950,6 +1009,21 @@ Discord UI View with navigation buttons.
 
 ## Examples
 
+### Live Working Example
+
+**Public Test Spreadsheet:**
+https://docs.google.com/spreadsheets/d/1j9T_x0RAIWKjNm_i1QZAwSReMbS_CUIFKh3y3T5tbAg/edit?usp=sharing
+
+This spreadsheet demonstrates:
+- Discord Markdown formatting (**bold**, _italic_)
+- Clickable Title URL
+- Clickable Author URL
+- Three embedded fields
+- Full-width field with tilde prefix
+- Color coding
+
+Use this with the test bot to see the system in action!
+
 ### Example 1: Simple Trip Display
 
 **Google Sheets Table:**
@@ -1014,34 +1088,20 @@ pip install discord.py gspread oauth2client
 
 ### External Dependencies
 
-**1. Logging**
+**1. Config Module**
 
-The module requires a logger named after your bot:
+The module requires a simple `config.py` file with a `Config` class:
 
 ```python
-from config import Config
-config = Config()
-logger = logging.getLogger(config.bot_name)
-```
-
-**To satisfy this dependency:**
-
-**Option A:** Create a `config.py` with:
-```python
+# config.py
 class Config:
     def __init__(self):
-        self.bot_name = "MyBot"
-```
+        self.bot_name = "YourBotName"
 
-**Option B:** Modify `discord_embed_manager.py`:
-```python
-# Replace this:
 config = Config()
-logger = logging.getLogger(config.bot_name)
-
-# With this:
-logger = logging.getLogger("MyBot")
 ```
+
+This allows the logger to use your bot's name. A minimal `config.py` is included in the repository.
 
 **2. Google Sheets Connection**
 

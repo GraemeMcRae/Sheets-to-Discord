@@ -45,20 +45,38 @@ GOOGLE_CREDENTIALS_FILE=google_credentials.json
 
 ### 4. Setup Google Sheets
 
+**Option A: Use the Live Example (Fastest)**
+
+Use the public example spreadsheet:
+- **URL:** https://docs.google.com/spreadsheets/d/1j9T_x0RAIWKjNm_i1QZAwSReMbS_CUIFKh3y3T5tbAg/edit?usp=sharing
+- **Name:** "Test Sheets-to-Discord"
+- Already configured with working example data
+- Shows Discord Markdown, Title URL, Author URL, and fields
+- Anyone with the link can view (read-only)
+
+To use this:
+1. Share your service account email in the spreadsheet comments if you want to test refresh
+2. Or just use it read-only to see the display (refresh won't work without write access)
+
+**Option B: Create Your Own**
+
 1. Create a Google Spreadsheet named "Test Sheets-to-Discord"
 2. Put sample JSON data in cell `Sheet1!A1`
-3. Share the spreadsheet with your service account email
+3. Share the spreadsheet with your service account email (from `google_credentials.json`)
 
 **Sample JSON for testing:**
 ```json
-[["Trip 1","Ready for dispatch","https://example.com",65280,"Test System","https://example.com","Test Footer","Driver","Jim Smith","Status","Ready"]]
+[["Trip 1","Ready for dispatch","https://example.com",65280,"Test System","https://example.com","Test Footer","SECRET-DATA-123","Driver","Jim Smith","Status","Ready"]]
 ```
+
+**Note:** The 8th field ("SECRET-DATA-123" in this example) is the **Hidden** column. If this field contains data, a "🔍 Show Hidden" button will appear. Click it to see the hidden data. This demonstrates the `additional_buttons` feature.
 
 ### 5. Add Files
 
 Ensure these files are in the same directory:
 - `test_sheets-to-discord_bot.py` (this bot)
 - `discord_embed_manager.py` (the renderer module)
+- `config.py` (minimal config for the renderer)
 - `google_credentials.json` (your service account credentials)
 - `.env` (your configuration)
 
@@ -85,12 +103,49 @@ In your Discord server, type:
 
 You should see your data displayed as interactive embed tiles!
 
+## Custom Button Feature
+
+This test bot demonstrates the `additional_buttons` feature. The code includes an example function `add_test_button()` that:
+
+1. **Checks for Hidden data** - Only adds button if Hidden column has content
+2. **Creates a button** - Labeled "🔍 Show Hidden"
+3. **Handles clicks** - Displays the hidden data when clicked
+
+**How it works:**
+
+```python
+def add_test_button(view, hidden_data, user_id):
+    # Only add button if there's hidden data
+    if not hidden_data or not hidden_data.strip():
+        return
+    
+    button = discord.ui.Button(label="🔍 Show Hidden", ...)
+    view.add_item(button)
+
+# Usage
+await display_embeds(
+    interaction,
+    refresh_callback=fetch_sheet_data,
+    additional_buttons=add_test_button  # ← Adds custom button
+)
+```
+
+**Use cases for your own buttons:**
+- Trigger actions based on row data
+- Open modals for user input
+- Update databases
+- Send notifications
+- Any custom functionality you need!
+
+The Hidden column can contain IDs, keys, or even JSON for complex data passing.
+
 ## Files Needed
 
 ```
 your-test-directory/
 ├── test_sheets-to-discord_bot.py  ← This bot
 ├── discord_embed_manager.py       ← The renderer module
+├── config.py                      ← Minimal config (provided)
 ├── requirements.txt               ← Python dependencies
 ├── .env                          ← Your configuration (create from .env.example)
 ├── .env.example                  ← Template configuration

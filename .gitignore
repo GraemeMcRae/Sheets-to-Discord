@@ -72,3 +72,6 @@ htmlcov/
 # Documentation builds
 docs/_build/
 site/
+
+# Backup files
+*BK202*.*
