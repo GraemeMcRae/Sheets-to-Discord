@@ -109,16 +109,17 @@ def parse_embed_data(data):
     [4] Author (256 chars, optional)
     [5] AuthorURL (optional URL for author)
     [6] Footer (2048 chars)
-    [7] Field 1 Name (256 chars)
-    [8] Field 1 Value (1024 chars)
-    [9] Field 2 Name (256 chars)
-    [10] Field 2 Value (1024 chars)
-    ... up to 25 field pairs (indices 7-56)
+    [7] Hidden (not displayed, passed to additional_buttons)
+    [8] Field 1 Name (256 chars)
+    [9] Field 1 Value (1024 chars)
+    [10] Field 2 Name (256 chars)
+    [11] Field 2 Value (1024 chars)
+    ... up to 25 field pairs (indices 8-57)
     
     Total embed limit: 6000 characters
     
     Returns:
-        List of embed specs (one per row)
+        List of embed specs (one per row), each row includes hidden data at index 7
     """
     if not data or len(data) == 0:
         return []
@@ -126,8 +127,8 @@ def parse_embed_data(data):
     embeds = []
     
     for row_idx, row in enumerate(data):
-        if len(row) < 7:
-            logger.warning(f"Row {row_idx + 1} has fewer than 7 required columns, skipping")
+        if len(row) < 8:
+            logger.warning(f"Row {row_idx + 1} has fewer than 8 required columns (including Hidden), skipping")
             continue
         
         # Extract fixed fields with URL columns
@@ -144,6 +145,7 @@ def parse_embed_data(data):
         author = str(row[4])[:256] if len(row) > 4 and row[4] else None
         author_url = validate_url(row[5] if len(row) > 5 else None, "AuthorURL", row_idx)
         footer = str(row[6])[:2048] if len(row) > 6 else ""
+        hidden = str(row[7]) if len(row) > 7 else ""  # Hidden data for custom buttons
         
         # Log truncations
         if len(row) > 0 and len(str(row[0])) > 256:
@@ -155,22 +157,22 @@ def parse_embed_data(data):
         if len(row) > 6 and len(str(row[6])) > 2048:
             logger.info(f"Row {row_idx + 1}: Footer truncated from {len(str(row[6]))} to 2048 chars")
         
-        # Extract fields (up to 25 pairs, starting at index 7)
+        # Extract fields (up to 25 pairs, starting at index 8 - after Hidden column)
         fields = []
         total_chars = len(title) + len(description) + len(footer)
         if author:
             total_chars += len(author)
         
         for field_idx in range(25):
-            name_idx = 7 + (field_idx * 2)
-            value_idx = 8 + (field_idx * 2)
+            name_idx = 8 + (field_idx * 2)
+            value_idx = 9 + (field_idx * 2)
             
             if name_idx >= len(row):
                 break
             
             # Check if all remaining fields are empty
             all_remaining_empty = True
-            for check_idx in range(name_idx, min(len(row), 57)):
+            for check_idx in range(name_idx, min(len(row), 58)):  # Changed from 57 to 58
                 if row[check_idx]:
                     all_remaining_empty = False
                     break
@@ -209,6 +211,7 @@ def parse_embed_data(data):
             "author": author,
             "author_url": author_url,
             "footer": footer,
+            "hidden": hidden,  # Hidden data for custom buttons
             "fields": fields
         })
     
@@ -282,15 +285,18 @@ class EmbedNavigationView(discord.ui.View):
         current_page: Starting page (0-indexed)
         user_id: User ID who can interact with this view
         refresh_callback: Optional async function to fetch fresh data
+        additional_buttons: Optional function to add custom buttons
+                           Called as: additional_buttons(view, hidden_data, user_id)
     """
     
-    def __init__(self, embeds_spec, current_page, user_id, refresh_callback=None):
+    def __init__(self, embeds_spec, current_page, user_id, refresh_callback=None, additional_buttons=None):
         super().__init__(timeout=300)  # 5 minute timeout
         self.embeds_spec = embeds_spec
         self.current_page = current_page
         self.total_pages = len(embeds_spec)
         self.user_id = user_id
         self.refresh_callback = refresh_callback
+        self.additional_buttons = additional_buttons
         self.message = None  # Will be set after sending
         self.update_buttons()
     
@@ -316,35 +322,42 @@ class EmbedNavigationView(discord.ui.View):
         """Update button states based on current page"""
         self.clear_items()
         
-        # Top button (<<)
-        top_button = discord.ui.Button(label="<<", style=discord.ButtonStyle.secondary, disabled=(self.current_page == 0))
-        top_button.callback = self.goto_top
-        self.add_item(top_button)
-        
-        # Previous button (<)
-        prev_button = discord.ui.Button(label="<", style=discord.ButtonStyle.primary, disabled=(self.current_page == 0))
-        prev_button.callback = self.previous_page
-        self.add_item(prev_button)
-        
-        # Page indicator
-        page_button = discord.ui.Button(label=f"{self.current_page + 1}/{self.total_pages}", style=discord.ButtonStyle.secondary, disabled=True)
-        self.add_item(page_button)
-        
-        # Next button (>)
-        next_button = discord.ui.Button(label=">", style=discord.ButtonStyle.primary, disabled=(self.current_page >= self.total_pages - 1))
-        next_button.callback = self.next_page
-        self.add_item(next_button)
-        
-        # Bottom button (>>)
-        bottom_button = discord.ui.Button(label=">>", style=discord.ButtonStyle.secondary, disabled=(self.current_page >= self.total_pages - 1))
-        bottom_button.callback = self.goto_bottom
-        self.add_item(bottom_button)
+        # Only add navigation buttons if multiple pages
+        if self.total_pages > 1:
+            # Top button (<<)
+            top_button = discord.ui.Button(label="<<", style=discord.ButtonStyle.secondary, disabled=(self.current_page == 0))
+            top_button.callback = self.goto_top
+            self.add_item(top_button)
+            
+            # Previous button (<)
+            prev_button = discord.ui.Button(label="<", style=discord.ButtonStyle.primary, disabled=(self.current_page == 0))
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+            
+            # Page indicator
+            page_button = discord.ui.Button(label=f"{self.current_page + 1}/{self.total_pages}", style=discord.ButtonStyle.secondary, disabled=True)
+            self.add_item(page_button)
+            
+            # Next button (>)
+            next_button = discord.ui.Button(label=">", style=discord.ButtonStyle.primary, disabled=(self.current_page >= self.total_pages - 1))
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+            
+            # Bottom button (>>)
+            bottom_button = discord.ui.Button(label=">>", style=discord.ButtonStyle.secondary, disabled=(self.current_page >= self.total_pages - 1))
+            bottom_button.callback = self.goto_bottom
+            self.add_item(bottom_button)
         
         # Refresh button (only if callback provided)
         if self.refresh_callback:
             refresh_button = discord.ui.Button(label="🔄", style=discord.ButtonStyle.success)
             refresh_button.callback = self.refresh_data
             self.add_item(refresh_button)
+        
+        # Add custom buttons (if function provided)
+        if self.additional_buttons:
+            hidden_data = self.embeds_spec[self.current_page]["hidden"]
+            self.additional_buttons(self, hidden_data, self.user_id)
     
     async def goto_top(self, interaction: discord.Interaction):
         """Go to first page"""
@@ -449,7 +462,7 @@ class EmbedNavigationView(discord.ui.View):
             await interaction.followup.send(f"❌ Refresh failed: {e}", ephemeral=True)
 
 
-async def display_embeds(interaction, json_string=None, refresh_callback=None):
+async def display_embeds(interaction, json_string=None, refresh_callback=None, additional_buttons=None):
     """
     Display JSON data as interactive Discord embed tiles
     
@@ -457,11 +470,18 @@ async def display_embeds(interaction, json_string=None, refresh_callback=None):
         interaction: Discord interaction object
         json_string: JSON string to display (optional if refresh_callback provided)
         refresh_callback: Optional async function that returns fresh JSON string
+        additional_buttons: Optional function to add custom buttons to view
+                           Called as: additional_buttons(view, hidden_data, user_id)
         
     The interaction should already be deferred before calling this function.
     
     If json_string is None but refresh_callback is provided, calls refresh_callback
     to fetch initial data.
+    
+    JSON Format:
+        Each row: [Title, Description, TitleURL, Color, Author, AuthorURL, 
+                  Footer, Hidden, Field1, Value1, Field2, Value2, ...]
+        Hidden column (index 7) is passed to additional_buttons but not displayed
     
     Returns:
         None
@@ -523,16 +543,12 @@ async def display_embeds(interaction, json_string=None, refresh_callback=None):
     # Create first embed
     embed = create_discord_embed(embeds_spec[current_page])
     
-    # Only show navigation if multiple pages
-    if total_pages > 1:
-        # Create view with navigation buttons (including refresh if callback provided)
-        view = EmbedNavigationView(embeds_spec, current_page, interaction.user.id, refresh_callback)
-        
-        # Send message and store reference in view for timeout handler
-        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        view.message = message
-    else:
-        # Single page - no navigation needed
-        await interaction.followup.send(embed=embed, ephemeral=True)
+    # Always create view - let it decide what buttons to add
+    # (navigation buttons only if multiple pages, refresh if callback, custom buttons if function provided)
+    view = EmbedNavigationView(embeds_spec, current_page, interaction.user.id, refresh_callback, additional_buttons)
+    
+    # Send message and store reference in view for timeout handler
+    message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    view.message = message
     
     logger.info(f"Displayed embeds (showing 1/{total_pages})")
