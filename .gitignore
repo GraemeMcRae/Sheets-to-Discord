@@ -1,3 +1,11 @@
+# Environment variables and secrets
+.env
+*.env
+.env.local
+.env.*.local
+[Cc]onfidential*
+[Ss]ecret*
+
 # Python
 __pycache__/
 *.py[cod]
@@ -24,7 +32,7 @@ share/python-wheels/
 MANIFEST
 
 # Virtual environments
-venv/
+venv*/
 env/
 ENV/
 env.bak/
@@ -36,11 +44,6 @@ venv.bak/
 *.swp
 *.swo
 *~
-
-# Environment variables
-.env
-.env.local
-.env.*.local
 
 # Credentials - NEVER commit these!
 *.json

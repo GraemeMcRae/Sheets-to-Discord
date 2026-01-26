@@ -1,0 +1,15 @@
+# Discord bot library
+discord.py>=2.3.2
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Browser automation for Amazon Relay downloads
+playwright>=1.40.0
+
+# Google Sheets API
+gspread>=5.12.0
+oauth2client>=4.1.3
+
+# Google Sheets formatting
+gspread-formatting>=1.1.0
