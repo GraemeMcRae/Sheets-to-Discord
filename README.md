@@ -875,6 +875,233 @@ Field Value:
 > Truck: `321554`
 ```
 
+## Developer's Guide: Programmatic Embed Creation
+
+### When to Use Programmatic Creation
+
+Most use cases should use the **Google Sheets → JSON** approach. Use programmatic creation **only** when:
+- Data comes from Discord API (user lists, role information)
+- Data changes too rapidly for spreadsheet formulas
+- You need custom buttons beyond standard navigation
+
+### JSON Data Format
+
+`display_embeds()` expects a **list of lists** where each row represents one embed page:
+
+```python
+json_data = [
+    [Title, Description, TitleURL, Color, Author, AuthorURL, Footer, Hidden, Field1, Value1, Field2, Value2, ...],
+    [Title, Description, TitleURL, Color, Author, AuthorURL, Footer, Hidden, Field1, Value1, Field2, Value2, ...],
+]
+```
+
+**Row Structure:**
+- **Columns 0-7:** Embed metadata (required, can be empty strings)
+  - Column 0: Title (string, max 256 chars)
+  - Column 1: Description (string, max 4096 chars, supports Markdown)
+  - Column 2: TitleURL (string, must start with http:// or https://, or empty)
+  - Column 3: Color (integer, see color table below)
+  - Column 4: Author (string, or empty)
+  - Column 5: AuthorURL (string, must start with http:// or https://, or empty)
+  - Column 6: Footer (string, or empty)
+  - Column 7: Hidden (string, passed to custom buttons, never displayed, or empty)
+- **Columns 8+:** Field pairs (FieldName, FieldValue, FieldName, FieldValue, ...)
+  - Field names starting with `~` display full-width (inline=False)
+  - Regular field names display inline (3 per row)
+
+**Color Values (must be integers):**
+| Color | Integer Value | Formula |
+|-------|---------------|---------|
+| Red | 16711680 | `(255*256+0)*256+0` |
+| Yellow | 16776960 | `(255*256+255)*256+0` |
+| Green | 65280 | `(0*256+255)*256+0` |
+| Blue | 255 | `(0*256+0)*256+255` |
+| Orange | 16753920 | `(255*256+165)*256+0` |
+| Purple | 8388736 | `(128*256+0)*256+128` |
+
+### Complete Example: User List
+
+```python
+import json
+from discord_embed_manager import display_embeds
+
+async def show_user_list(interaction: discord.Interaction, users_dict):
+    """Display user information as interactive embeds"""
+    
+    # Defer the response
+    await interaction.response.defer(ephemeral=True)
+    
+    # Build JSON data
+    json_data = []
+    
+    # Page 1: Summary
+    summary_row = [
+        "User Summary",                      # Title
+        f"Showing {len(users_dict)} users", # Description
+        "",                                  # TitleURL (empty)
+        255,                                 # Color (blue integer)
+        "",                                  # Author (empty)
+        "",                                  # AuthorURL (empty)
+        "",                                  # Footer (empty)
+        "",                                  # Hidden (empty for summary)
+        "Total Users", str(len(users_dict)), # Field1, Value1
+        "Active Users", str(active_count),   # Field2, Value2
+    ]
+    json_data.append(summary_row)
+    
+    # Pages 2+: Per-user details
+    for user_id, user_data in users_dict.items():
+        user_row = [
+            f"User: {user_data['name']}",    # Title
+            user_data.get('bio', ''),         # Description
+            user_data.get('profile_url', ''), # TitleURL
+            65280,                            # Color (green integer)
+            "Discord User",                   # Author
+            "",                               # AuthorURL (empty)
+            f"ID: {user_id}",                # Footer
+            user_id,                          # Hidden - user ID for custom buttons
+            "~Username", user_data['name'],  # Field1 (full-width due to ~)
+            "Joined", user_data['joined'],   # Field2, Value2
+            "Role", user_data['role'],       # Field3, Value3
+        ]
+        json_data.append(user_row)
+    
+    # Convert to JSON string
+    json_string = json.dumps(json_data)
+    
+    # Display
+    await display_embeds(
+        interaction,
+        json_string=json_string,
+        refresh_callback=None  # Or provide async refresh function
+    )
+```
+
+### Adding Custom Buttons
+
+Use the `additional_buttons` parameter to add custom buttons to specific pages:
+
+```python
+def add_custom_button(view, hidden_data, user_id):
+    """Add custom button (called for each page navigation)
+    
+    Args:
+        view: EmbedNavigationView instance
+        hidden_data: Content from Hidden column (index 7) for current page
+        user_id: Discord user ID who can interact with this view
+    """
+    
+    # hidden_data contains the value from Hidden column (index 7)
+    # It's empty for summary pages, populated for detail pages
+    if not hidden_data:
+        return  # Skip pages with no hidden data (e.g., summary page)
+    
+    # hidden_data contains whatever you put in column 7
+    # In this example, it's the user_id
+    target_user_id = hidden_data
+    
+    # Create button
+    action_button = discord.ui.Button(
+        label="Take Action",
+        style=discord.ButtonStyle.primary,
+        custom_id=f"action_{target_user_id}"
+    )
+    
+    # Define callback
+    async def button_callback(button_interaction: discord.Interaction):
+        if button_interaction.user.id != user_id:
+            await button_interaction.response.send_message(
+                "❌ Not your view", ephemeral=True
+            )
+            return
+        
+        # Perform action using the hidden_data
+        await button_interaction.response.send_message(
+            f"Action performed for user {target_user_id}", 
+            ephemeral=True
+        )
+    
+    action_button.callback = button_callback
+    view.add_item(action_button)
+
+# Use in display_embeds call
+await display_embeds(
+    interaction,
+    json_string=json_string,
+    refresh_callback=None,
+    additional_buttons=add_custom_button  # Pass the function
+)
+```
+
+**Key Points:**
+- `hidden_data` is automatically extracted from column 7 of the current page
+- You don't need to parse JSON or search through data - it's provided directly
+- Perfect for storing IDs, keys, or metadata needed by custom buttons
+- Empty `hidden_data` = no custom button (use this to skip summary pages)
+
+### Common Mistakes to Avoid
+
+❌ **Wrong:** Passing string color values
+```python
+"color": "blue"  # ERROR: Expected int, got str
+```
+✅ **Correct:** Use integer color values
+```python
+255  # Blue as integer
+```
+
+❌ **Wrong:** Creating Discord Embed objects directly
+```python
+embed = discord.Embed(title="...", color=discord.Color.blue())
+```
+✅ **Correct:** Use list-of-lists format
+```python
+["Title", "Description", "", 255, "", "", "", "", "Field1", "Value1"]
+```
+
+❌ **Wrong:** Forgetting to defer interaction
+```python
+await display_embeds(interaction, ...)  # ERROR: Interaction not deferred
+```
+✅ **Correct:** Always defer first
+```python
+await interaction.response.defer(ephemeral=True)
+await display_embeds(interaction, ...)
+```
+
+❌ **Wrong:** Missing required columns 0-7
+```python
+["Title", "Description", "Field1", "Value1"]  # ERROR: Missing TitleURL, Color, etc.
+```
+✅ **Correct:** Always include all 8 metadata columns (0-7)
+```python
+["Title", "Description", "", 255, "", "", "", "", "Field1", "Value1"]
+#                         ^TitleURL ^Color ^Author ^AuthorURL ^Footer ^Hidden
+```
+
+❌ **Wrong:** Parsing JSON data in custom button function
+```python
+def add_button(view, hidden_data, user_id):
+    # Don't do this - parse through json_data
+    current_row = json_data[view.current_page]
+    user_id = current_row.index("User ID") + 1  # Error-prone!
+```
+✅ **Correct:** Use hidden_data parameter directly
+```python
+def add_button(view, hidden_data, user_id):
+    if not hidden_data:
+        return  # Skip if no hidden data
+    target_id = hidden_data  # It's already extracted for you!
+```
+
+### Reference Examples in Codebase
+
+For working examples, see:
+- **bot_help.py** - Static help pages from CSV
+- **bot_trips_list_command.py** - Dynamic data from Google Sheets with refresh
+- **bot_login_command.py** - Programmatic creation with custom buttons
+
+
 ## API Reference
 
 ### Main Function

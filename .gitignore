@@ -78,3 +78,4 @@ site/
 
 # Backup files
 *BK202*.*
+config_sheets-to-discord.py
