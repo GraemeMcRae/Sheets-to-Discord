@@ -48,9 +48,9 @@ venv.bak/
 # Credentials - NEVER commit these!
 *.json
 !package.json
-google_credentials.json
-service_account.json
-credentials.json
+google_credentials*.json
+service_account*.json
+credentials*.json
 
 # Logs
 *.log
